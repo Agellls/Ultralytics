@@ -1,28 +1,28 @@
 from fastapi import FastAPI, UploadFile, File
 from ultralytics import YOLO
-import shutil, os
+from io import BytesIO
+from PIL import Image
+import os
 
 app = FastAPI()
-model = YOLO("yolov8n.pt")  # model ringan (nano) bawaan COCO
+model = YOLO("yolov8n.pt")  # pre-load sekali di startup
 
 @app.post("/detect")
 async def detect(file: UploadFile = File(...)):
-    # Simpan file sementara
-    temp_path = f"/tmp/{file.filename}"
-    with open(temp_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
+    # baca bytes langsung tanpa tulis ke disk
+    img_bytes = await file.read()
+    img = Image.open(BytesIO(img_bytes)).convert("RGB")
 
-    # Jalankan deteksi
-    results = model(temp_path, imgsz=640, conf=0.25)
-    os.remove(temp_path)
+    # imgsz kecil, conf default cukup untuk ada/tidak-ada
+    results = model(img, imgsz=640, conf=0.25)
 
-    detections = []
+    out = []
+    names = model.names
     for r in results:
-        for box in r.boxes:
-            cls = model.names[int(box.cls[0])]
-            detections.append({
-                "label": cls,
-                "confidence": float(box.conf[0]),
-                "xyxy": box.xyxy[0].tolist()
+        for b in r.boxes:
+            out.append({
+                "label": names[int(b.cls[0])],
+                "confidence": float(b.conf[0]),
+                "xyxy": [float(x) for x in b.xyxy[0].tolist()]
             })
-    return {"detections": detections}
+    return {"detections": out}
